@@ -170,6 +170,7 @@ vh = x_sim[0, :len(Ft_all)]
 d  = x_sim[1, :len(Ft_all)]
 t_axis = np.arange(len(Ft_all)) * Ts
 
+
 vh_ref_series = np.zeros_like(vh)
 for k in range(len(vh)):
     vp_now = vp_profile[k]
@@ -178,17 +179,21 @@ for k in range(len(vh)):
     vh_ref_series[k] = np.clip(vp_now + v_bias, vp_now - REL_CAP, vp_now + REL_CAP)
 
 rmse_v = np.sqrt(np.mean((vh - vh_ref_series) ** 2))
+rmse_d = np.sqrt(np.mean((d - d_ref) ** 2))
 gap_margin_min = np.min(d - d_safe)
 energy_proxy = np.sum(Ft_all**2 + Fb_all**2)
 mean_solve = np.mean(solve_time)
 p95_solve  = np.percentile(solve_time, 95)
+vh_mae = np.mean(np.abs(vh - vh_ref_series))
+d_mae = np.mean(np.abs(d - d_ref))
 
 print(f"Solved steps: {len(Ft_all)} / {N_sim}. Last status: {solve_status[-1]}")
 print(f"Final vh = {vh[-1]:.3f} m/s, Final d = {d[-1]:.3f} m")
 print(f"RMSE(v) = {rmse_v:.3f}, min(d - d_safe) = {gap_margin_min:.3f} m")
+print(f"RMSE(d) = {rmse_d:.3f} m")
 print(f"Energy proxy ∑u^2 = {energy_proxy:.1f}")
 print(f"Solve time: mean {1e3*mean_solve:.2f} ms, p95 {1e3*p95_solve:.2f} ms")
-
+print(f"MAE(v) = {vh_mae:.3f} m/s, MAE(d) = {d_mae:.3f} m")
 # =========================
 # Plots
 # =========================

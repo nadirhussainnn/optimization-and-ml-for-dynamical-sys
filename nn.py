@@ -20,6 +20,7 @@ A_f = 2.2
 c_d = 0.3
 c_r = 0.01
 g = 9.81
+D_SAFE = 3.0
 
 # Nonlinear dynamics function
 def vehicle_dynamics(x, u, v_p, theta=0):
@@ -165,9 +166,6 @@ history = model.fit(X_train_scaled, y_train_scaled,
                     validation_data=(X_val_scaled, y_val_scaled), verbose=1,
                     callbacks=[early_stopping])
 
-# Evaluating model on all sets
-print("Evaluating model...")
-
 # Training set evaluation
 y_train_pred_scaled = model.predict(X_train_scaled)
 y_train_pred_v = scaler_y_v.inverse_transform(y_train_pred_scaled[:, 0].reshape(-1, 1))
@@ -186,47 +184,6 @@ y_test_pred_v = scaler_y_v.inverse_transform(y_test_pred_scaled[:, 0].reshape(-1
 y_test_pred_d = scaler_y_d.inverse_transform(y_test_pred_scaled[:, 1].reshape(-1, 1))
 y_test_pred = np.column_stack((y_test_pred_v, y_test_pred_d))
 
-# Calculating metrics for all sets
-def calculate_metrics(y_true, y_pred, set_name):
-    mse = mean_squared_error(y_true, y_pred)
-    mae = mean_absolute_error(y_true, y_pred)
-    
-    mse_velocity = mean_squared_error(y_true[:, 0], y_pred[:, 0])
-    mse_distance = mean_squared_error(y_true[:, 1], y_pred[:, 1])
-    mae_velocity = mean_absolute_error(y_true[:, 0], y_pred[:, 0])
-    mae_distance = mean_absolute_error(y_true[:, 1], y_pred[:, 1])
-    
-    r2_velocity = r2_score(y_true[:, 0], y_pred[:, 0])
-    r2_distance = r2_score(y_true[:, 1], y_pred[:, 1])
-    r2_overall = r2_score(y_true, y_pred)
-    
-    print(f"\n{set_name} Set Performance:")
-    print(f"Overall MSE: {mse:.6f}, MAE: {mae:.6f}, R²: {r2_overall:.6f}")
-    print(f"Velocity MSE: {mse_velocity:.6f}, MAE: {mae_velocity:.6f}, R²: {r2_velocity:.6f}")
-    print(f"Distance MSE: {mse_distance:.6f}, MAE: {mae_distance:.6f}, R²: {r2_distance:.6f}")
-    
-    return {
-        'mse': mse, 'mae': mae, 'r2': r2_overall,
-        'mse_velocity': mse_velocity, 'mae_velocity': mae_velocity, 'r2_velocity': r2_velocity,
-        'mse_distance': mse_distance, 'mae_distance': mae_distance, 'r2_distance': r2_distance
-    }
-
-train_metrics = calculate_metrics(y_train, y_train_pred, "Training")
-val_metrics = calculate_metrics(y_val, y_val_pred, "Validation")
-test_metrics = calculate_metrics(y_test, y_test_pred, "Test")
-
-# Creating comprehensive visualization
-fig = plt.figure(figsize=(12, 8))
-
-# 1. Training history
-plt.subplot(2, 2, 1)
-plt.plot(history.history['loss'], label='Training Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.title('Training History')
-plt.legend()
-plt.grid(True)
 
 # 2. Compare with real system on a test trajectory
 def create_test_trajectory():
@@ -286,6 +243,45 @@ for k in range(T):
     
     x_nn[k+1] = nn_output[0]
 
+# Calculating metrics for test trajectory
+def calculate_trajectory_metrics(x_real, x_nn, set_name):
+    mse_velocity = mean_squared_error(x_real[:, 0], x_nn[:, 0])
+    mse_distance = mean_squared_error(x_real[:, 1], x_nn[:, 1])
+    mae_velocity = mean_absolute_error(x_real[:, 0], x_nn[:, 0])
+    mae_distance = mean_absolute_error(x_real[:, 1], x_nn[:, 1])
+    r2_velocity = r2_score(x_real[:, 0], x_nn[:, 0])
+    r2_distance = r2_score(x_real[:, 1], x_nn[:, 1])
+    min_gap = np.min(x_nn[:, 1] - D_SAFE)
+    energy_proxy_nn = np.sum(F_t_test**2 + F_b_test**2)
+
+    print(f"\n{set_name} Performance:")
+    print(f"Velocity MSE: {mse_velocity:.6f}, MAE: {mae_velocity:.6f}, R²: {r2_velocity:.6f}")
+    print(f"Distance MSE: {mse_distance:.6f}, MAE: {mae_distance:.6f}, R²: {r2_distance:.6f}")
+    print(f"Energy proxy for NN: {energy_proxy_nn:.1f}")
+    print(f"Min Gap Margin: {min_gap:.3f} m")
+
+    return {
+        'mse_velocity': mse_velocity, 'mae_velocity': mae_velocity, 'r2_velocity': r2_velocity,
+        'mse_distance': mse_distance, 'mae_distance': mae_distance, 'r2_distance': r2_distance,
+        'energy_proxy_nn': energy_proxy_nn,
+        'min_gap': min_gap
+    }
+
+traj_metrics = calculate_trajectory_metrics(x_real, x_nn, "Test Trajectory")
+
+# Creating comprehensive visualization
+fig = plt.figure(figsize=(12, 8))
+
+# 1. Training history
+plt.subplot(2, 2, 1)
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training History')
+plt.legend()
+plt.grid(True)
+
 # 7. Velocity comparison
 plt.subplot(2, 2, 2)
 plt.plot(np.arange(T+1)*dt, x_real[:, 0], 'b-', label='Real System', linewidth=2)
@@ -323,24 +319,12 @@ plt.tight_layout()
 plt.savefig('neural_net_analysis.png', dpi=300, bbox_inches='tight')
 plt.show()
 
-# Calculate performance metrics for the test trajectory
-mse_velocity = mean_squared_error(x_real[:, 0], x_nn[:, 0])
-mse_distance = mean_squared_error(x_real[:, 1], x_nn[:, 1])
-mae_velocity = mean_absolute_error(x_real[:, 0], x_nn[:, 0])
-mae_distance = mean_absolute_error(x_real[:, 1], x_nn[:, 1])
-r2_velocity = r2_score(x_real[:, 0], x_nn[:, 0])
-r2_distance = r2_score(x_real[:, 1], x_nn[:, 1])
-
-print(f"\nTest Trajectory Performance:")
-print(f"Velocity MSE: {mse_velocity:.6f}, MAE: {mae_velocity:.6f}, R²: {r2_velocity:.6f}")
-print(f"Distance MSE: {mse_distance:.6f}, MAE: {mae_distance:.6f}, R²: {r2_distance:.6f}")
-
 # Save scalers
 joblib.dump(scaler_X, 'scaler_X.joblib')
 joblib.dump(scaler_y_v, 'scaler_y_v.joblib')
 joblib.dump(scaler_y_d, 'scaler_y_d.joblib')
 print("Scalers saved.")
 
-# Save model in native Keras format
+# Saving model in native Keras format
 model.save('vehicle_dynamics_model.keras')
 print("Model saved as 'vehicle_dynamics_model.keras'")
